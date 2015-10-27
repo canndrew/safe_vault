@@ -15,6 +15,7 @@
 // Please review the Licences for the specific language governing permissions and limitations
 // relating to use of the SAFE Network Software.
 
+use std::io::Read;
 pub use routing::Authority::NaeManager as Authority;
 
 pub const ACCOUNT_TAG: u64 = ::transfer_tag::TransferTag::StructuredDataManagerAccount as u64;
@@ -57,11 +58,17 @@ impl StructuredDataManager {
             return ::utils::HANDLED;
         }
 
-        let data = self.chunk_store.get(&structured_data_name);
-        if data.len() == 0 {
-            warn!("Failed to GET data with name {:?}", structured_data_name);
-            return ::utils::HANDLED;
-        }
+        let data = match self.chunk_store.get(&structured_data_name) {
+            Ok(Some(data)) => data,
+            Ok(None)       => {
+                warn!("Failed to GET data with name {:?} (not in store)", structured_data_name);
+                return ::utils::HANDLED;
+            },
+            Err(e)         => {
+                warn!("Failed to GET data with name {:?}: {}", structured_data_name, e);
+                return ::utils::HANDLED;
+            }
+        };
         let decoded: ::routing::structured_data::StructuredData =
             match ::routing::utils::decode(&data) {
                 Ok(data) => data,
@@ -107,15 +114,20 @@ impl StructuredDataManager {
         //          if the data does not exist, and the request is not from SDM(i.e. a transfer),
         //              then the post shall be rejected
         //       in addition to above, POST shall check the ownership
-        if !self.chunk_store.has_chunk(&structured_data.name()) {
-            if let Ok(serialised_data) = ::routing::utils::encode(&structured_data) {
-                self.chunk_store.put(&structured_data.name(), serialised_data);
-            } else {
-                debug!("Failed to serialise {:?}", structured_data);
+        match self.chunk_store.has_chunk(&structured_data.name()) {
+            Err(e)    => error!("Failed to check chunk store: {}", e),
+            Ok(true)  => debug!("Already have SD {:?}", structured_data.name()),
+            Ok(false) => {
+                if let Ok(serialised_data) = ::routing::utils::encode(&structured_data) {
+                    match self.chunk_store.put(&structured_data.name(), serialised_data) {
+                        Ok(()) => (),
+                        Err(e) => error!("Failed to put to chunk store: {}", e),
+                    }
+                } else {
+                    error!("Failed to serialise {:?}", structured_data);
+                }
             }
-        } else {
-            debug!("Already have SD {:?}", structured_data.name());
-        }
+        };
         ::utils::HANDLED
     }
 
@@ -148,11 +160,17 @@ impl StructuredDataManager {
         //          if the data does not exist, and the request is not from SDM(i.e. a transfer),
         //              then the post shall be rejected
         //       in addition to above, POST shall check the ownership
-        let serialised_data = self.chunk_store.get(&new_data.name());
-        if serialised_data.len() == 0 {
-            warn!("Don't currently hold data for POST at StructuredDataManager: {:?}", data);
-            return ::utils::HANDLED;
-        }
+        let serialised_data = match self.chunk_store.get(&new_data.name()) {
+            Ok(Some(serialised_data)) => serialised_data,
+            Ok(None) => {
+                warn!("Don't currently hold data for POST at StructuredDataManager: {:?}", data);
+                return ::utils::HANDLED;
+            },
+            Err(e) => {
+                warn!("There was an error checking the chunk store for POST data: {}", e);
+                return ::utils::HANDLED;
+            },
+        };
         let _ = ::routing::utils::decode::<::routing::structured_data::StructuredData>(
                 &serialised_data).ok()
             .and_then(|mut existing_data| {
@@ -187,9 +205,26 @@ impl StructuredDataManager {
     }
 
     pub fn handle_churn(&mut self, churn_node: &::routing::NameType) {
-        let names = self.chunk_store.names();
-        for name in names {
-            let data = self.chunk_store.get(&name);
+        let chunks = match self.chunk_store.chunks() {
+            Ok(chunks) => chunks,
+            Err(e)     => {
+                error!("Failed to get chunks from chunk store: {}", e);
+                return;
+            },
+        };
+        for chunk in chunks {
+            let (name, path) = match chunk {
+                Ok((name, path)) => (name, path),
+                Err(e)           => {
+                    error!("Failed to get chunk from chunk store: {}", e);
+                    continue;
+                },
+            };
+            let mut data = Vec::new();
+            if let Err(e) = ::std::fs::File::open(path).and_then(|mut f| f.read_to_end(&mut data)) {
+                error!("Failed to read chunk from chunk store: {}", e);
+                continue;
+            };
             debug!("SDManager sends out a refresh regarding data {:?}", name);
             self.routing.refresh_request(ACCOUNT_TAG, Authority(name),
                                          data, churn_node.clone());
@@ -205,10 +240,28 @@ impl StructuredDataManager {
                       our_authority: &::routing::Authority,
                       churn_node: &::routing::NameType) -> Option<()> {
         if type_tag == &ACCOUNT_TAG {
-            let names = self.chunk_store.names();
-            for name in names {
+            let chunks = match self.chunk_store.chunks() {
+                Ok(chunks) => chunks,
+                Err(e)    => {
+                    error!("Failed to get chunks from chunk store: {}", e);
+                    return ::utils::HANDLED;
+                },
+            };
+            for chunk in chunks {
+                let (name, path) = match chunk {
+                    Ok((name, path)) => (name, path),
+                    Err(e)           => {
+                        error!("Failed to get chunk from chunk store: {}", e);
+                        continue;
+                    },
+                };
                 if *our_authority.get_location() == name {
-                    let data = self.chunk_store.get(&name);
+                    let mut data = Vec::new();
+                    if let Err(e) = ::std::fs::File::open(path)
+                                                    .and_then(|mut f| f.read_to_end(&mut data)) {
+                        error!("Failed to read chunk from chunk store: {}", e);
+                        continue;
+                    };
                     debug!("SDManager on-request sends out a refresh regarding data {:?}", name);
                     self.routing.refresh_request(ACCOUNT_TAG, our_authority.clone(),
                                                  data, churn_node.clone());
@@ -230,8 +283,9 @@ impl StructuredDataManager {
     fn handle_account_transfer(&mut self,
                                structured_data: ::routing::structured_data::StructuredData) {
         use ::types::Refreshable;
-        self.chunk_store.delete(&structured_data.name());
-        self.chunk_store.put(&structured_data.name(), structured_data.serialised_contents());
+        // FIXME: handle these errors
+        let _ = self.chunk_store.delete(&structured_data.name());
+        let _ = self.chunk_store.put(&structured_data.name(), structured_data.serialised_contents());
     }
 }
 

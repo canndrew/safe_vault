@@ -15,6 +15,7 @@
 // Please review the Licences for the specific language governing permissions and limitations
 // relating to use of the SAFE Network Software.
 
+use std::io::Read;
 pub use routing::Authority::ManagedNode as Authority;
 
 pub struct PmidNode {
@@ -58,11 +59,17 @@ impl PmidNode {
             }
         };
 
-        let data = self.chunk_store.get(immutable_data_name_and_type.0);
-        if data.len() == 0 {
-            warn!("Failed to GET data with name {:?}", immutable_data_name_and_type.0);
-            return ::utils::HANDLED;
-        }
+        let data = match self.chunk_store.get(immutable_data_name_and_type.0) {
+            Ok(Some(data)) => data,
+            Ok(None)       => {
+                warn!("Failed to GET data with name {:?} (not in store)", immutable_data_name_and_type.0);
+                return ::utils::HANDLED;
+            },
+            Err(e)         => {
+                warn!("Failed to GET data ith name {:?}, I/O error: {}", immutable_data_name_and_type.0, e);
+                return ::utils::HANDLED;
+            },
+        };
         let decoded: ::routing::immutable_data::ImmutableData =
             match ::routing::utils::decode(&data) {
                 Ok(data) => data,
@@ -114,7 +121,10 @@ impl PmidNode {
         };
         if self.chunk_store.has_disk_space(serialised_data.len()) {
             // the type_tag needs to be stored as well
-            self.chunk_store.put(&immutable_data.name(), serialised_data);
+            match self.chunk_store.put(&immutable_data.name(), serialised_data) {
+                Ok(()) => (),
+                Err(e) => error!("Failed to put to chunk store: {}", e),
+            }
             return ::utils::HANDLED;
         }
 
@@ -132,35 +142,60 @@ impl PmidNode {
         let required_space = serialised_data.len() -
                              (self.chunk_store.max_disk_usage() -
                               self.chunk_store.current_disk_usage());
-        let names = self.chunk_store.names();
-        let mut emptied_space = 0;
-        for name in names.iter() {
-            let fetched_data = self.chunk_store.get(name);
-            let parsed_data: ::routing::immutable_data::ImmutableData =
-                match ::routing::utils::decode(&fetched_data) {
-                    Ok(data) => data,
-                    Err(_) => {
-                        // remove corrupted data
-                        self.chunk_store.delete(name);
-                        continue
-                    }
-                };
-            match *parsed_data.get_type_tag() {
-                ::routing::immutable_data::ImmutableDataType::Sacrificial => {
-                    emptied_space += fetched_data.len();
-                    self.chunk_store.delete(name);
-                    // For sacrificed data, just notify PmidManager to update the account and
-                    // DataManager need to adjust its farming rate, replication shall not be carried
-                    // out for it.
-                    self.notify_managers_of_sacrifice(&our_authority, parsed_data, &response_token);
-                    if emptied_space > required_space {
-                        self.chunk_store.put(&immutable_data.name(), serialised_data);
-                        return ::utils::HANDLED;
+        match self.chunk_store.chunks() {
+            Err(e)     => error!("Failed to get chunk store list of names: {}", e),
+            Ok(chunks) => {
+                let mut emptied_space = 0;
+                for chunk in chunks {
+                    let (name, path) = match chunk {
+                        Ok((name, path)) => (name, path),
+                        Err(e)           => {
+                            error!("Failed to get chunk from chunk store: {}", e);
+                            continue;
+                        }
+                    };
+                    let mut fetched_data = Vec::new();
+                    if let Err(e) = ::std::fs::File::open(path)
+                                                    .and_then(|mut f| f.read_to_end(&mut fetched_data)) {
+                        error!("Failed to read chunk from chunk store: {}", e);
+                        continue;
+                    };
+                    let parsed_data: ::routing::immutable_data::ImmutableData =
+                        match ::routing::utils::decode(&fetched_data) {
+                            Ok(data) => data,
+                            Err(_) => {
+                                // remove corrupted data
+                                match self.chunk_store.delete(&name) {
+                                    Ok(()) => (),
+                                    Err(e) => error!("Failed to delete {} from chunk store: {}", name, e),
+                                }
+                                continue
+                            }
+                        };
+                    match *parsed_data.get_type_tag() {
+                        ::routing::immutable_data::ImmutableDataType::Sacrificial => {
+                            match self.chunk_store.delete(&name) {
+                                Ok(()) => (),
+                                Err(e) => error!("Failed to delete {} from chunk store: {}", name, e),
+                            };
+                            emptied_space += fetched_data.len();
+                            // For sacrificed data, just notify PmidManager to update the account and
+                            // DataManager need to adjust its farming rate, replication shall not be carried
+                            // out for it.
+                            self.notify_managers_of_sacrifice(&our_authority, parsed_data, &response_token);
+                            if emptied_space > required_space {
+                                match self.chunk_store.put(&immutable_data.name(), serialised_data) {
+                                    Ok(()) => (),
+                                    Err(e) => error!("Failed to put data to chunk store: {}", e),
+                                }
+                                return ::utils::HANDLED;
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
-            }
-        }
+            },
+        };
 
         // We failed to make room for it - replication needs to be carried out.
         let location = ::pmid_manager::Authority(our_authority.get_location().clone());

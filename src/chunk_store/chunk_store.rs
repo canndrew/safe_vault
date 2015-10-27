@@ -15,6 +15,40 @@
 // Please review the Licences for the specific language governing permissions and limitations
 // relating to use of the SAFE Network Software.
 
+/// Errors that can occur during `ChunkStore::put`.
+#[derive(Debug)]
+enum PutError {
+    /// There was insufficient space to save the chunk.
+    StorageLimitHit,
+    /// There was an IO error occured during the put.
+    IoError(::std::io::Error),
+}
+
+impl ::std::fmt::Display for PutError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        match *self {
+            PutError::StorageLimitHit => "The chunk store storage limit was hit".fmt(f),
+            PutError::IoError(ref e)  => e.fmt(f),
+        }
+    }
+}
+
+impl ::std::error::Error for PutError {
+    fn description(&self) -> &str {
+        match *self {
+            PutError::StorageLimitHit => "The chunk store storage limit was hit",
+            PutError::IoError(_)      => "I/O error",
+        }
+    }
+
+    fn cause(&self) -> Option<&::std::error::Error> {
+        match *self {
+            PutError::StorageLimitHit => None,
+            PutError::IoError(ref e)  => Some(e),
+        }
+    }
+}
+
 /// ChunkStore is a collection for holding all data chunks.
 /// Implements a maximum disk usage to restrict storage.
 pub struct ChunkStore {
@@ -25,7 +59,7 @@ pub struct ChunkStore {
 
 impl ChunkStore {
     /// Create new chunkstore with `max_disk_usage` allowed disk usage.
-    pub fn new(max_disk_usage: usize) -> Result<ChunkStore, ::error::ChunkStoreError> {
+    pub fn new(max_disk_usage: usize) -> ::std::io::Result<ChunkStore> {
         let tempdir = try!(::tempdir::TempDir::new("safe_vault"));
         Ok(ChunkStore {
             tempdir: tempdir,
@@ -34,62 +68,80 @@ impl ChunkStore {
         })
     }
 
-    pub fn put(&mut self, name: &::routing::NameType, value: Vec<u8>) {
+    pub fn put(&mut self, name: &::routing::NameType, value: Vec<u8>) -> Result<(), PutError> {
         use ::std::io::Write;
 
         if !self.has_disk_space(value.len()) {
-            return warn!("Not enough space in ChunkStore.");
+            warn!("Not enough space in ChunkStore.");
+            return Err(PutError::StorageLimitHit);
         }
 
-        // If a file with name 'name' already exists, delete it.
-        self.delete(name);
-
-        let hex_name = self.to_hex_string(name);
+        let hex_name = name.as_hex();
         let path_name = ::std::path::Path::new(&hex_name);
         let path = self.tempdir.path().join(path_name);
-        let _ = ::std::fs::File::create(&path)
-            .and_then(|mut file| {
-                file.write(&value[..])
-                    .and_then(|size| {
-                        self.current_disk_usage += size;
-                        file.sync_all().map(|_| self.current_disk_usage)
-                    })
-                    .map(|_| file)
-            })
-            .or_else(|error| {
-                error!("ChunkStore failed to put to file {:?}: {}", path, error);
-                Err(error)
-            });
+
+        // If a file with name 'name' already exists, delete it.
+        if let Err(e) = self.delete(name) {
+            error!("ChunkStore failed to delete possibly preexisting file {:?}: {}", path, e);
+            return Err(PutError::IoError(e));
+        }
+
+        let mut file = match ::std::fs::File::create(&path) {
+            Ok(f)   => f,
+            Err(e)  => {
+                error!("ChunkStore failed to create chunk file {:?}: {}", path, e);
+                return Err(PutError::IoError(e));
+            }
+        };
+        let size = match file.write(&value[..]).and_then(|s| file.sync_all().map(|()| s)) {
+            Ok(s)   => s,
+            Err(e)  => {
+                error!("ChunkStore failed to write chunk file {:?}: {}", path, e);
+                if let Err(e) = ::std::fs::remove_file(&path) {
+                    error!("ChunkStore failed to remove invalid chunk file {:?}: {}", path, e);
+                }
+                return Err(PutError::IoError(e));
+            },
+        };
+        self.current_disk_usage += size;
+        Ok(())
     }
 
-    pub fn delete(&mut self, name: &::routing::NameType) {
-        let _ = self.dir_entry(name)
-                    .and_then(|entry| {
-                        let _ = entry.metadata()
-                                     .and_then(|metadata|
-                                         Ok(self.current_disk_usage -= metadata.len() as usize))
-                                     .or_else(|error| {
-                                         error!("ChunkStore failed to get metadata for {:?}: {}",
-                                                entry.path(), error);
-                                         Err(error)
-                                     });
-                        ::std::fs::remove_file(entry.path())
-                            .or_else(|error| {
-                                error!("ChunkStore failed to remove {:?}: {}", entry.path(), error);
-                                Err(error)
-                            })
-                            .ok()
-                    });
+    pub fn delete(&mut self, name: &::routing::NameType) -> ::std::io::Result<()> {
+        match try!(self.dir_entry(name)) {
+            None        => Ok(()),
+            Some(entry) => {
+                let metadata = match entry.metadata() {
+                    Ok(m)  => m,
+                    Err(e) => {
+                        error!("ChunkStore failed to get metadata for {:?}: {}", entry.path(), e);
+                        return Err(e);
+                    }
+                };
+                match ::std::fs::remove_file(entry.path()) {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("ChunkStore failed to remove {:?}: {}", entry.path(), e);
+                        return Err(e);
+                    },
+                };
+                self.current_disk_usage -= metadata.len() as usize;
+                Ok(())
+            },
+        }
     }
 
-    pub fn get(&self, name: &::routing::NameType) -> Vec<u8> {
+    pub fn get(&self, name: &::routing::NameType) -> ::std::io::Result<Option<Vec<u8>>> {
         use ::std::io::Read;
-        self.dir_entry(name)
-            .and_then(|entry| ::std::fs::File::open(&entry.path()).ok())
-            .and_then(|mut file| {
+        match try!(self.dir_entry(name)) {
+            None        => Ok(None),
+            Some(entry) => {
+                let mut file = try!(::std::fs::File::open(&entry.path()));
                 let mut contents = Vec::<u8>::new();
-                file.read_to_end(&mut contents).ok().and_then(|_| Some(contents))
-            }).unwrap_or(vec![])
+                let _ = try!(file.read_to_end(&mut contents));
+                Ok(Some(contents))
+            }
+        }
     }
 
     pub fn max_disk_usage(&self) -> usize {
@@ -100,42 +152,93 @@ impl ChunkStore {
         self.current_disk_usage
     }
 
-    pub fn has_chunk(&self, name: &::routing::NameType) -> bool {
-        self.dir_entry(name).is_some()
+    pub fn has_chunk(&self, name: &::routing::NameType) -> ::std::io::Result<bool> {
+        Ok(try!(self.dir_entry(name)).is_some())
     }
 
-    pub fn names(&self) -> Vec<::routing::NameType> {
-        use ::rustc_serialize::hex::FromHex;
-        ::std::fs::read_dir(&self.tempdir.path()).and_then(|dir_entries| {
-            let dir_entry_to_routing_name = |dir_entry: ::std::io::Result<::std::fs::DirEntry>| {
-                dir_entry.ok()
-                         .and_then(|entry| entry.file_name().into_string().ok())
-                         .and_then(|hex_name| hex_name.from_hex().ok())
-                         .and_then(|bytes| Some(::routing::NameType::new(
-                             ::routing::types::vector_as_u8_64_array(bytes))))
+/*
+    pub fn names(&self) -> Result<Vec<::routing::NameType>, ::std::io::Error> {
+        let dir_entries = try!(::std::fs::read_dir(&self.tempdir.path()));
+        let mut ret = Vec::with_capacity(dir_entries.size_hint().1.unwrap_or(0));
+        for dir_entry in dir_entries {
+            let entry = try!(dir_entry);
+            let name = match entry.file_name().into_string() {
+                Ok(name) => name,
+                Err(_)   => continue,   // Ignore file name which contains invalid utf-8.
             };
-            Ok(dir_entries.filter_map(dir_entry_to_routing_name).collect())
-        }).unwrap_or(vec![])
+            let name_type = match ::routing::NameType::from_hex(&name[..]) {
+                Ok(name_type) => name_type,
+                Err(_)   => continue,   // Ignore file name which is not a valid NameType.
+            };
+            ret.push(name_type);
+        }
+        Ok(ret)
     }
+*/
 
     pub fn has_disk_space(&self, required_space: usize) -> bool {
         self.current_disk_usage + required_space <= self.max_disk_usage
     }
 
-    fn to_hex_string(&self, name: &::routing::NameType) -> String {
-        use ::rustc_serialize::hex::ToHex;
-        name.get_id().to_hex()
+    fn dir_entry(&self, name: &::routing::NameType) -> ::std::io::Result<Option<::std::fs::DirEntry>> {
+        let hex_name = name.as_hex();
+        for dir_entry in try!(::std::fs::read_dir(&self.tempdir.path())) {
+            let entry = try!(dir_entry);
+            if entry.file_name().as_os_str() == ::std::ffi::OsStr::new(&hex_name[..]) {
+                return Ok(Some(entry))
+            }
+        }
+        Ok(None)
     }
 
-    fn dir_entry(&self, name: &::routing::NameType) -> Option<::std::fs::DirEntry> {
-        ::std::fs::read_dir(&self.tempdir.path()).ok().and_then(|mut dir_entries| {
-            let hex_name = self.to_hex_string(name);
-            dir_entries.find(|dir_entry| {
-                match dir_entry {
-                    &Ok(ref entry) => entry.file_name().to_str() == Some(&hex_name[..]),
-                    &Err(_) => false,
-                }
-            }).and_then(|entry_result| entry_result.ok())
+    /// Create an iterator that iterates over all the chunks in the chunks store.
+    pub fn chunks(&self) -> ::std::io::Result<Chunks> {
+        let dir_entries = try!(::std::fs::read_dir(&self.tempdir.path()));
+        Ok(Chunks {
+            dir_entries: dir_entries,
         })
     }
 }
+
+struct Chunks {
+    dir_entries: ::std::fs::ReadDir,
+}
+
+impl Iterator for Chunks {
+    type Item = ::std::io::Result<(::routing::NameType, ::std::path::PathBuf)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let dir_entries = &mut self.dir_entries;
+        for dir_entry in dir_entries {
+            match dir_entry {
+                Err(e)    => return Some(Err(e)),
+                Ok(entry) => {
+                    match entry.file_type().map(|ft| ft.is_file()) {
+                        Ok(true)  => (),
+                        Ok(false) => continue,
+                        Err(e)    => return Some(Err(e)),
+                    };
+                    let path = entry.path();
+                    let name_type = {
+                        let name = match path.file_name().and_then(|name| name.to_str()) {
+                            Some(name) => name,
+                            None       => continue, // Ignore file name which contains invalid utf-8.
+                        };
+                        match ::routing::NameType::from_hex(name) {
+                            Ok(name_type) => name_type,
+                            Err(_)   => continue,   // Ignore file name which is not a valid NameType.
+                        }
+                    };
+                    return Some(Ok((name_type, path)));
+                }
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, h) = self.dir_entries.size_hint();
+        (0, h)
+    }
+}
+
