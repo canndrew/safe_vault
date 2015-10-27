@@ -195,7 +195,7 @@ mod test {
     #[test]
     fn exist() {
         let mut db = Database::new();
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         assert!(!db.storage.contains_key(&name));
         db.put_data(&name, 1024);
         assert!(db.storage.contains_key(&name));
@@ -204,7 +204,7 @@ mod test {
     // #[test]
     // fn put_data() {
     //     let mut db = Database::new();
-    //     let name = ::utils::random_name();
+    //     let name = ::rand::random();
     //     assert_eq!(db.put_data(&name, 0), true);
     //     assert_eq!(db.exist(&name), true);
     //     assert_eq!(db.put_data(&name, 1), true);
@@ -219,7 +219,7 @@ mod test {
     #[test]
     fn handle_account_transfer() {
         let mut db = Database::new();
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         db.put_data(&name, 1024);
         assert!(db.storage.contains_key(&name));
 

@@ -533,7 +533,7 @@ mod test {
         (Authority(data.name().clone()),
          routing,
          data_manager,
-         ::maid_manager::Authority(::utils::random_name()),
+         ::maid_manager::Authority(::rand::random()),
          data)
     }
 
@@ -555,7 +555,7 @@ mod test {
             }
         }
         {
-            let from = ::utils::random_name();
+            let from = ::rand::random();
             let keys = ::sodiumoxide::crypto::sign::gen_keypair();
             let client = ::routing::Authority::Client(from, keys.0);
 
@@ -585,7 +585,7 @@ mod test {
                               .into_iter()
                               .chain(data_manager.nodes_in_table.clone().into_iter())
                               .collect();
-        let churn_node = ::utils::random_name();
+        let churn_node = ::rand::random();
         data_manager.handle_churn(close_group, &churn_node);
         let refresh_requests = routing.refresh_requests_given();
         assert_eq!(refresh_requests.len(), 2);

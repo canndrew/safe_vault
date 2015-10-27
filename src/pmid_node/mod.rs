@@ -244,7 +244,7 @@ mod test {
         let routing = ::vault::Routing::new(::std::sync::mpsc::channel().0);
         let mut pmid_node = PmidNode::new(routing.clone());
 
-        let us = ::utils::random_name();
+        let us = ::rand::random();
         let our_authority = Authority(us.clone());
 
         let from_authority = ::pmid_manager::Authority(us.clone());
@@ -260,7 +260,7 @@ mod test {
             assert_eq!(0, routing.put_responses_given().len());
         }
         {
-            let from = ::utils::random_name();
+            let from = ::rand::random();
             let from_authority = ::data_manager::Authority(from.clone());
 
             let request = ::routing::data::DataRequest::ImmutableData(data.name().clone(),

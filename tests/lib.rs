@@ -202,8 +202,8 @@ fn executable_structured_data_churn_test() {
     let mut processes = start_vaults(4);
     let (mut client_routing, client_receiver, client_name) = start_client();
 
-    let name = ::routing::NameType(::routing::types::vector_as_u8_64_array(
-        ::routing::types::generate_random_vec_u8(64)));
+    let name = ::routing::NameType(::routing::types::slice_as_u8_64_array(
+        &::routing::types::generate_random_vec_u8(64)[..]));
     let value = ::routing::types::generate_random_vec_u8(1024);
     let sign_keys = ::sodiumoxide::crypto::sign::gen_keypair();
     let sd = ::routing::structured_data::StructuredData::new(0,

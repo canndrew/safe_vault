@@ -655,7 +655,7 @@ mod test {
         // ======================= Post test =======================================================
         println!("\n======================= Post test \
                  =======================================================");
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         let value = ::routing::types::generate_random_vec_u8(1024);
         let sign_keys = ::sodiumoxide::crypto::sign::gen_keypair();
         let sd = evaluate_result!(
@@ -775,7 +775,7 @@ mod test {
         // ======================= Churn (node up) StructuredData test =============================
         println!("\n======================= Churn (node up) StructuredData test \
                  =============================");
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         let value = ::routing::types::generate_random_vec_u8(1024);
         let sign_keys = ::sodiumoxide::crypto::sign::gen_keypair();
         let sd = evaluate_result!(
@@ -840,9 +840,9 @@ mod mock_routing_test {
 
         let mut available_nodes = Vec::with_capacity(30);
         for _ in 0..30 {
-            available_nodes.push(::utils::random_name());
+            available_nodes.push(::rand::random());
         }
-        routing.churn_event(available_nodes, ::utils::random_name());
+        routing.churn_event(available_nodes, ::rand::random());
         (routing, VaultComms{ receiver: receiver, killer: killer, join_handle: join_handle })
     }
 
@@ -850,7 +850,7 @@ mod mock_routing_test {
     fn put_get_flow() {
         let (mut routing, vault_comms) = mock_env_setup();
 
-        let client_name = ::utils::random_name();
+        let client_name = ::rand::random();
         let sign_keys = ::sodiumoxide::crypto::sign::gen_keypair();
         let value = ::routing::types::generate_random_vec_u8(1024);
         let im_data = ::routing::immutable_data::ImmutableData::new(
@@ -873,7 +873,7 @@ mod mock_routing_test {
     fn post_flow() {
         let (mut routing, vault_comms) = mock_env_setup();
 
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         let value = ::routing::types::generate_random_vec_u8(1024);
         let sign_keys = ::sodiumoxide::crypto::sign::gen_keypair();
         let sd = evaluate_result!(
@@ -885,7 +885,7 @@ mod mock_routing_test {
                                                             vec![],
                                                             Some(&sign_keys.1)));
 
-        let client_name = ::utils::random_name();
+        let client_name = ::rand::random();
         routing.client_put(client_name,
                            sign_keys.0,
                            ::routing::data::Data::StructuredData(sd.clone()));

@@ -36,7 +36,7 @@ mod test {
 
         {
             let mut put = |size| {
-                let name = ::utils::random_name();
+                let name = ::rand::random();
                 let data = get_random_non_empty_string(size);
                 let size_before_insert = chunk_store.current_disk_usage();
                 assert!(!chunk_store.has_chunk(&name).unwrap());
@@ -66,7 +66,7 @@ mod test {
         let mut chunk_store = evaluate_result!(::chunk_store::ChunkStore::new(k_disk_size));
 
         let mut put_and_delete = |size| {
-            let name = ::utils::random_name();
+            let name = ::rand::random();
             let data = get_random_non_empty_string(size);
 
             chunk_store.put(&name, data.into_bytes()).unwrap();
@@ -85,7 +85,7 @@ mod test {
         let k_disk_size: usize = 116;
         let mut chunk_store = evaluate_result!(::chunk_store::ChunkStore::new(k_disk_size));
 
-        let name = ::utils::random_name();
+        let name = ::rand::random();
         let data = get_random_non_empty_string(data_size).into_bytes();
         chunk_store.put(&name, data.clone()).unwrap();
         let recovered = chunk_store.get(&name).unwrap().unwrap();
@@ -104,7 +104,7 @@ mod test {
             chunk_store.current_disk_usage()
         };
 
-        let name = ::utils::random_name();
+        let name: ::routing::NameType = ::rand::random();
         assert_eq!(put(name.clone(), 1usize), 1usize);
         assert_eq!(put(name.clone(), 100usize), 100usize);
         assert_eq!(put(name.clone(), 10usize), 10usize);

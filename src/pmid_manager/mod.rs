@@ -187,10 +187,10 @@ mod test {
         let value = ::routing::types::generate_random_vec_u8(1024);
         let data = ::routing::immutable_data::ImmutableData::new(
                        ::routing::immutable_data::ImmutableDataType::Normal, value);
-        (Authority(::utils::random_name()),
+        (Authority(::rand::random()),
          routing,
          pmid_manager,
-         ::data_manager::Authority(::utils::random_name()),
+         ::data_manager::Authority(::rand::random()),
          data)
     }
 
@@ -223,7 +223,7 @@ mod test {
                                ::routing::NameType::new([6u8; 64]),
                                ::routing::NameType::new([7u8; 64]),
                                ::routing::NameType::new([8u8; 64])];
-        let churn_node = ::utils::random_name();
+        let churn_node = ::rand::random();
         pmid_manager.handle_churn(&close_group, &churn_node);
         let refresh_requests = routing.refresh_requests_given();
         assert_eq!(refresh_requests.len(), 1);

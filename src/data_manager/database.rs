@@ -223,7 +223,7 @@ mod test {
         let mut pmid_nodes: Vec<::routing::NameType> = vec![];
 
         for _ in 0..4 {
-            pmid_nodes.push(::utils::random_name());
+            pmid_nodes.push(::rand::random());
         }
 
         let data_name = data.name();
@@ -242,7 +242,7 @@ mod test {
         let mut pmid_nodes: Vec<::routing::NameType> = vec![];
 
         for _ in 0..4 {
-            pmid_nodes.push(::utils::random_name());
+            pmid_nodes.push(::rand::random());
         }
 
         let result = db.get_pmid_nodes(&data_name);
@@ -264,7 +264,7 @@ mod test {
         let mut pmid_nodes: Vec<::routing::NameType> = vec![];
 
         for _ in 0..4 {
-            pmid_nodes.push(::utils::random_name());
+            pmid_nodes.push(::rand::random());
         }
 
         db.put_pmid_nodes(&data_name, pmid_nodes.clone());
@@ -291,8 +291,8 @@ mod test {
         let mut new_pmid_nodes: Vec<::routing::NameType> = vec![];
 
         for _ in 0..4 {
-            pmid_nodes.push(::utils::random_name());
-            new_pmid_nodes.push(::utils::random_name());
+            pmid_nodes.push(::rand::random());
+            new_pmid_nodes.push(::rand::random());
         }
 
         db.put_pmid_nodes(&data_name, pmid_nodes.clone());
@@ -320,7 +320,7 @@ mod test {
         let mut pmid_nodes: Vec<::routing::NameType> = vec![];
 
         for _ in 0..4 {
-            pmid_nodes.push(::utils::random_name());
+            pmid_nodes.push(::rand::random());
         }
         db.put_pmid_nodes(&data_name, pmid_nodes.clone());
         assert_eq!(db.get_pmid_nodes(&data_name).len(), pmid_nodes.len());
