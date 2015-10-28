@@ -66,7 +66,7 @@ impl PmidNode {
                 return ::utils::HANDLED;
             },
             Err(e)         => {
-                warn!("Failed to GET data ith name {:?}, I/O error: {}", immutable_data_name_and_type.0, e);
+                warn!("Failed to GET data with name {:?}, I/O error: {}", immutable_data_name_and_type.0, e);
                 return ::utils::HANDLED;
             },
         };

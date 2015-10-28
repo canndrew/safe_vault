@@ -156,28 +156,16 @@ impl ChunkStore {
         Ok(try!(self.dir_entry(name)).is_some())
     }
 
-/*
-    pub fn names(&self) -> Result<Vec<::routing::NameType>, ::std::io::Error> {
-        let dir_entries = try!(::std::fs::read_dir(&self.tempdir.path()));
-        let mut ret = Vec::with_capacity(dir_entries.size_hint().1.unwrap_or(0));
-        for dir_entry in dir_entries {
-            let entry = try!(dir_entry);
-            let name = match entry.file_name().into_string() {
-                Ok(name) => name,
-                Err(_)   => continue,   // Ignore file name which contains invalid utf-8.
-            };
-            let name_type = match ::routing::NameType::from_hex(&name[..]) {
-                Ok(name_type) => name_type,
-                Err(_)   => continue,   // Ignore file name which is not a valid NameType.
-            };
-            ret.push(name_type);
-        }
-        Ok(ret)
-    }
-*/
-
     pub fn has_disk_space(&self, required_space: usize) -> bool {
         self.current_disk_usage + required_space <= self.max_disk_usage
+    }
+
+    /// Create an iterator that iterates over all the chunks in the chunks store.
+    pub fn chunks(&self) -> ::std::io::Result<Chunks> {
+        let dir_entries = try!(::std::fs::read_dir(&self.tempdir.path()));
+        Ok(Chunks {
+            dir_entries: dir_entries,
+        })
     }
 
     fn dir_entry(&self, name: &::routing::NameType) -> ::std::io::Result<Option<::std::fs::DirEntry>> {
@@ -189,14 +177,6 @@ impl ChunkStore {
             }
         }
         Ok(None)
-    }
-
-    /// Create an iterator that iterates over all the chunks in the chunks store.
-    pub fn chunks(&self) -> ::std::io::Result<Chunks> {
-        let dir_entries = try!(::std::fs::read_dir(&self.tempdir.path()));
-        Ok(Chunks {
-            dir_entries: dir_entries,
-        })
     }
 }
 
