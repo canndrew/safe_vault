@@ -123,21 +123,21 @@ impl DataManager {
         // }
 
         // Cache the request
-        if self.request_cache.contains_key(data_name) {
-            debug!("DataManager {:?} inserting original request {:?} from {:?} into {:?} ",
-                   self.id, data_request, from_authority, data_name);
-            match self.request_cache.get_mut(data_name) {
-                Some(ref mut request) => request.push((from_authority.clone(),
-                                                       data_request.clone(),
-                                                       response_token.clone())),
-                None => error!("Failed to insert get request in the cache."),
-            };
-        } else {
-            debug!("DataManager {:?} created original request {:?} from {:?} as entry {:?}",
-                   self.id, data_request, from_authority, data_name);
-            let _ = self.request_cache.insert(*data_name,
-                                              vec![(from_authority.clone(),
-                data_request.clone(), response_token.clone())]);
+        match self.request_cache.entry(*data_name) {
+            ::lru_time_cache::Entry::Occupied(oe) => {
+                debug!("DataManager {:?} inserting original request {:?} from {:?} into {:?} ",
+                       self.id, data_request, from_authority, data_name);
+                oe.into_mut().push((from_authority.clone(),
+                                    data_request.clone(),
+                                    response_token.clone()));
+            },
+            ::lru_time_cache::Entry::Vacant(ve) => {
+                debug!("DataManager {:?} created original request {:?} from {:?} as entry {:?}",
+                       self.id, data_request, from_authority, data_name);
+                let _ = ve.insert(vec![(from_authority.clone(),
+                                        data_request.clone(),
+                                        response_token.clone())]);
+            },
         }
 
         // Before querying the records, first ensure all records are valid
