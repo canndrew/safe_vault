@@ -147,18 +147,19 @@ impl PmidNode {
             Ok(chunks) => {
                 let mut emptied_space = 0;
                 for chunk in chunks {
-                    let (name, path) = match chunk {
-                        Ok((name, path)) => (name, path),
+                    let (name, reader) = match chunk {
+                        Ok((name, reader)) => (name, reader),
                         Err(e)           => {
                             error!("Failed to get chunk from chunk store: {}", e);
                             continue;
                         }
                     };
-                    let mut fetched_data = Vec::new();
-                    if let Err(e) = ::std::fs::File::open(path)
-                                                    .and_then(|mut f| f.read_to_end(&mut fetched_data)) {
-                        error!("Failed to read chunk from chunk store: {}", e);
-                        continue;
+                    let fetched_data = match reader.read() {
+                        Ok(fetched_data) => fetched_data,
+                        Err(e) => {
+                            error!("Failed to read chunk from chunk store: {}", e);
+                            continue;
+                        },
                     };
                     let parsed_data: ::routing::immutable_data::ImmutableData =
                         match ::routing::utils::decode(&fetched_data) {

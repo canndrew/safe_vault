@@ -213,17 +213,19 @@ impl StructuredDataManager {
             },
         };
         for chunk in chunks {
-            let (name, path) = match chunk {
-                Ok((name, path)) => (name, path),
+            let (name, reader) = match chunk {
+                Ok((name, reader)) => (name, reader),
                 Err(e)           => {
                     error!("Failed to get chunk from chunk store: {}", e);
                     continue;
                 },
             };
-            let mut data = Vec::new();
-            if let Err(e) = ::std::fs::File::open(path).and_then(|mut f| f.read_to_end(&mut data)) {
-                error!("Failed to read chunk from chunk store: {}", e);
-                continue;
+            let data = match reader.read() {
+                Ok(data) => data,
+                Err(e)   => {
+                    error!("Failed to read chunk from chunk store: {}", e);
+                    continue;
+                },
             };
             debug!("SDManager sends out a refresh regarding data {:?}", name);
             self.routing.refresh_request(ACCOUNT_TAG, Authority(name),
@@ -248,19 +250,20 @@ impl StructuredDataManager {
                 },
             };
             for chunk in chunks {
-                let (name, path) = match chunk {
-                    Ok((name, path)) => (name, path),
+                let (name, reader) = match chunk {
+                    Ok((name, reader)) => (name, reader),
                     Err(e)           => {
                         error!("Failed to get chunk from chunk store: {}", e);
                         continue;
                     },
                 };
                 if *our_authority.get_location() == name {
-                    let mut data = Vec::new();
-                    if let Err(e) = ::std::fs::File::open(path)
-                                                    .and_then(|mut f| f.read_to_end(&mut data)) {
-                        error!("Failed to read chunk from chunk store: {}", e);
-                        continue;
+                    let data = match reader.read() {
+                        Ok(data) => data,
+                        Err(e) => {
+                            error!("Failed to read chunk from chunk store: {}", e);
+                            continue;
+                        },
                     };
                     debug!("SDManager on-request sends out a refresh regarding data {:?}", name);
                     self.routing.refresh_request(ACCOUNT_TAG, our_authority.clone(),

@@ -200,12 +200,26 @@ impl ChunkStore {
     }
 }
 
+struct ChunkReader {
+    path: ::std::path::PathBuf,
+}
+
+impl ChunkReader {
+    pub fn read(self) -> ::std::io::Result<Vec<u8>> {
+        use ::std::io::Read;
+        let mut file = try!(::std::fs::File::open(self.path));
+        let mut data = Vec::new();
+        let _ = try!(file.read_to_end(&mut data));
+        Ok(data)
+    }
+}
+
 struct Chunks {
     dir_entries: ::std::fs::ReadDir,
 }
 
 impl Iterator for Chunks {
-    type Item = ::std::io::Result<(::routing::NameType, ::std::path::PathBuf)>;
+    type Item = ::std::io::Result<(::routing::NameType, ChunkReader)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let dir_entries = &mut self.dir_entries;
@@ -229,7 +243,9 @@ impl Iterator for Chunks {
                             Err(_)   => continue,   // Ignore file name which is not a valid NameType.
                         }
                     };
-                    return Some(Ok((name_type, path)));
+                    return Some(Ok((name_type, ChunkReader {
+                        path: path,
+                    })));
                 }
             }
         }
