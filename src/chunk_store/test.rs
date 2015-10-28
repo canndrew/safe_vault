@@ -39,10 +39,10 @@ mod test {
                 let name = ::rand::random();
                 let data = get_random_non_empty_string(size);
                 let size_before_insert = chunk_store.current_disk_usage();
-                assert!(!chunk_store.has_chunk(&name).unwrap());
-                chunk_store.put(&name, data.into_bytes()).unwrap();
+                assert!(!evaluate_result!(chunk_store.has_chunk(&name)));
+                evaluate_result!(chunk_store.put(&name, data.into_bytes()));
                 assert_eq!(chunk_store.current_disk_usage(), size + size_before_insert);
-                assert!(chunk_store.has_chunk(&name).unwrap());
+                assert!(evaluate_result!(chunk_store.has_chunk(&name)));
                 names.push(name);
                 chunk_store.current_disk_usage()
             };
@@ -52,9 +52,8 @@ mod test {
             assert_eq!(put(10usize), 111usize);
             assert_eq!(put(5usize), k_disk_size);
         }
-        assert_eq!(names.sort(), chunk_store.chunks()
-                                            .unwrap()
-                                            .map(|x| x.unwrap().0)
+        assert_eq!(names.sort(), evaluate_result!(chunk_store.chunks())
+                                            .map(|x| evaluate_result!(x).0)
                                             .collect::<Vec<_>>()
                                             .sort());
     }
@@ -69,9 +68,9 @@ mod test {
             let name = ::rand::random();
             let data = get_random_non_empty_string(size);
 
-            chunk_store.put(&name, data.into_bytes()).unwrap();
+            evaluate_result!(chunk_store.put(&name, data.into_bytes()));
             assert_eq!(chunk_store.current_disk_usage(), size);
-            chunk_store.delete(&name).unwrap();
+            evaluate_result!(chunk_store.delete(&name));
             assert_eq!(chunk_store.current_disk_usage(), 0);
         };
 
@@ -87,8 +86,9 @@ mod test {
 
         let name = ::rand::random();
         let data = get_random_non_empty_string(data_size).into_bytes();
-        chunk_store.put(&name, data.clone()).unwrap();
-        let recovered = chunk_store.get(&name).unwrap().unwrap();
+        evaluate_result!(chunk_store.put(&name, data.clone()));
+        let recovered = evaluate_option!(evaluate_result!(chunk_store.get(&name)),
+                                         "The value wasn't in the chunk store");
         assert_eq!(data, recovered);
         assert_eq!(chunk_store.current_disk_usage(), data_size);
     }
@@ -100,7 +100,7 @@ mod test {
 
         let mut put = |name, size| {
             let data = get_random_non_empty_string(size);
-            chunk_store.put(&name, data.into_bytes()).unwrap();
+            evaluate_result!(chunk_store.put(&name, data.into_bytes()));
             chunk_store.current_disk_usage()
         };
 
