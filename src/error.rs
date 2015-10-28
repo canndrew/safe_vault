@@ -15,22 +15,74 @@
 // Please review the Licences for the specific language governing permissions and limitations
 // relating to use of the SAFE Network Software.
 
+/// Errors that can occur during `ChunkStore::put`.
 #[derive(Debug)]
-pub enum ChunkStoreError {
-    // Report Input/Output error.
-    Io(::std::io::Error),
+pub enum ChunkStorePutError {
+    /// There was insufficient space to save the chunk.
+    StorageLimitHit,
+    /// There was an IO error occured during the put.
+    InternalError(ChunkStoreInternalError),
 }
 
-impl From<::std::io::Error> for ChunkStoreError {
-    fn from(error: ::std::io::Error) -> ChunkStoreError {
-        ChunkStoreError::Io(error)
-    }
-}
-
-impl ::std::fmt::Display for ChunkStoreError {
+impl ::std::fmt::Display for ChunkStorePutError {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        match self {
-            &ChunkStoreError::Io(ref error) => write!(formatter, "ChunkStoreError::Io: {}", error),
+        match *self {
+            ChunkStorePutError::StorageLimitHit
+                => write!(formatter, "The chunk store storage limit was hit"),
+            ChunkStorePutError::InternalError(ref e)
+                => write!(formatter, "chunk store internal error: {}", e),
         }
     }
 }
+
+impl ::std::error::Error for ChunkStorePutError {
+    fn description(&self) -> &str {
+        match *self {
+            ChunkStorePutError::StorageLimitHit => "The chunk store storage limit was hit",
+            ChunkStorePutError::InternalError(_) => "chunk store internal error",
+        }
+    }
+
+    fn cause(&self) -> Option<&::std::error::Error> {
+        match *self {
+            ChunkStorePutError::StorageLimitHit => None,
+            ChunkStorePutError::InternalError(ref e) => Some(e),
+        }
+    }
+}
+
+/// Errors that can occur when interacting with physical storage medium.
+#[derive(Debug)]
+pub enum ChunkStoreInternalError {
+    /// Report Input/Output error.
+    Io(::std::io::Error),
+}
+
+impl From<::std::io::Error> for ChunkStoreInternalError {
+    fn from(error: ::std::io::Error) -> ChunkStoreInternalError {
+        ChunkStoreInternalError::Io(error)
+    }
+}
+
+impl ::std::fmt::Display for ChunkStoreInternalError {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        match self {
+            &ChunkStoreInternalError::Io(ref error) => write!(formatter, "ChunkStoreInternalError::Io: {}", error),
+        }
+    }
+}
+
+impl ::std::error::Error for ChunkStoreInternalError {
+    fn description(&self) -> &str {
+        match *self {
+            ChunkStoreInternalError::Io(_) => "IO error",
+        }
+    }
+
+    fn cause(&self) -> Option<&::std::error::Error> {
+        match *self {
+            ChunkStoreInternalError::Io(ref error) => Some(error),
+        }
+    }
+}
+
